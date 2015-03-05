@@ -1,4 +1,4 @@
-//  Copyright © 2015 David Caldwell <david@porkrind.org> -*- compile-command: "cc -o analogtv-test analogtv-test.c thread.c analogtv.c apple2-video-fancy.c -Wall $(pkg-config --cflags --libs gdlib)"; -*-
+//  Copyright © 2015 David Caldwell <david@porkrind.org>
 
 #include "analogtv.h"
 #include "apple2-video-fancy.h"
