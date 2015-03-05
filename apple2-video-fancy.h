@@ -14,7 +14,7 @@ struct video_mode {
     unsigned page;
 };
 
-void apple2_video_fancy_setup();
+void apple2_video_fancy_setup(unsigned width, unsigned height);
 struct framebuffer *apple2_video_fancy_render(unsigned frame,
                                               unsigned frames__second,
                                               struct video_mode video_mode,

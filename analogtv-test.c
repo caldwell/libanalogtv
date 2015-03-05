@@ -44,7 +44,7 @@ uint8_t hgr_screen_ram[] = {
 
 int main(int argc, char **argv)
 {
-    apple2_video_fancy_setup();
+    apple2_video_fancy_setup(1280, 720);
 
     struct video_mode video_mode = { .graphics=true, .hires=true, .mixed=false, .page=0 };
 

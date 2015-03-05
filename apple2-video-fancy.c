@@ -38,9 +38,9 @@ static analogtv *atv;
 static analogtv_input *input;
 static analogtv_reception reception;
 
-void apple2_video_fancy_setup()
+void apple2_video_fancy_setup(unsigned width, unsigned height)
 {
-    atv = analogtv_allocate(960, 720, (struct framebuffer_driver) { .alloc=fb_alloc, .free=fb_free });
+    atv = analogtv_allocate(width, height, (struct framebuffer_driver) { .alloc=fb_alloc, .free=fb_free });
     assert(atv);
 
     input = analogtv_input_allocate();
