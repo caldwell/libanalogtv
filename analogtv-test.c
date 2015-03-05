@@ -48,12 +48,16 @@ int main(int argc, char **argv)
 
     struct video_mode video_mode = { .graphics=true, .hires=true, .mixed=false, .page=0 };
 
+    char *filename = "out.png";
     if (argc >= 5) {
         video_mode.graphics    = !!strtoul(argv[1], NULL, 0);
         video_mode.hires       = !!strtoul(argv[2], NULL, 0);
         video_mode.mixed       = !!strtoul(argv[3], NULL, 0);
         video_mode.page        = !!strtoul(argv[4], NULL, 0);
     }
+    if (argc >= 6)
+        filename = argv[5];
+
     printf("graphics=%d, hires=%d, mixed=%d, page=%d\n", video_mode.graphics, video_mode.hires, video_mode.mixed, video_mode.page);
 
     struct framebuffer *fb = apple2_video_fancy_render(0,
@@ -61,7 +65,7 @@ int main(int argc, char **argv)
                                                        video_mode,
                                                        video_mode.hires ? hgr_screen_ram : text_screen_ram);
 
-    save_png("out.png", gd_image_from_fb(fb));
+    save_png(filename, gd_image_from_fb(fb));
 
     apple2_video_fancy_cleanup();
 
