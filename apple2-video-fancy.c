@@ -93,7 +93,7 @@ struct framebuffer *apple2_video_fancy_render(unsigned frame,
                     }
                 }
             } else { // hires and text
-                bool text = !video_mode.graphics || row>160 && video_mode.mixed;
+                bool text = !video_mode.graphics || row>=160 && video_mode.mixed;
                 unsigned row_addr = text ? text_start + text_line_offset(textrow)
                                          : hgr_start  + hgr_line_offset(row);
                 // printf("Row address %3d: %04x\n", row, row_addr);
