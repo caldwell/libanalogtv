@@ -58,6 +58,7 @@ struct framebuffer *apple2_video_fancy_render(unsigned frame,
                                               struct video_mode video_mode,
                                               uint8_t *ram)
 {
+    atv->powerup = (float)frame / frames__second;
     analogtv_setup_sync(input, video_mode.graphics/*do_cb*/, false/*do_ssavi*/);
 
     analogtv_setup_frame(atv);
