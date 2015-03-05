@@ -12,8 +12,8 @@
 #ifndef _XSCREENSAVER_ANALOGTV_H
 #define _XSCREENSAVER_ANALOGTV_H
 
-#include "thread_util.h"
-#include "xshm.h"
+#include <sys/time.h>
+#include "thread.h"
 
 /*
   You'll need these to generate standard NTSC TV signals
@@ -74,6 +74,18 @@ enum {
 
 };
 
+struct framebuffer { // bytewise RGBA
+  unsigned width;
+  unsigned bytes_per_line;
+  unsigned height;
+  void *pixels;
+};
+
+struct framebuffer_driver {
+  struct framebuffer *(*alloc)(unsigned width, unsigned height);
+  void (*free)(struct framebuffer *framebuffer);
+};
+
 typedef struct analogtv_input_s {
   signed char signal[ANALOGTV_V+1][ANALOGTV_H];
 
@@ -85,12 +97,6 @@ typedef struct analogtv_input_s {
   double next_update_time;
 
 } analogtv_input;
-
-typedef struct analogtv_font_s {
-  XImage *text_im;
-  int char_w, char_h;
-  int x_mult, y_mult;
-} analogtv_font;
 
 typedef struct analogtv_reception_s {
 
@@ -118,69 +124,28 @@ struct analogtv_yiq_s {
 
 typedef struct analogtv_s {
 
-  Display *dpy;
-  Window window;
-  Screen *screen;
-  XWindowAttributes xgwa;
-
   struct threadpool threads;
-
-#if 0
-  unsigned int onscreen_signature[ANALOGTV_V];
-#endif
-
-  int n_colors;
-
-  int interlace;
-  int interlace_counter;
 
   float agclevel;
 
-  /* If you change these, call analogtv_set_demod */
-  float tint_control,color_control,brightness_control,contrast_control;
+  /* If you change these, call analogtv_set_demod (which was a NOP and
+     doesn't exist anymore, so you probably don't have to do anything) */
+  float color_control,brightness_control,contrast_control;
   float height_control, width_control, squish_control;
   float horiz_desync;
   float squeezebottom;
   float powerup;
 
-  /* internal cache */
-  int blur_mult;
-
-  /* For fast display, set fakeit_top, fakeit_bot to
-     the scanlines (0..ANALOGTV_V) that can be preserved on screen.
-     fakeit_scroll is the number of scan lines to scroll it up,
-     or 0 to not scroll at all. It will DTRT if asked to scroll from
-     an offscreen region.
-  */
-  int fakeit_top;
-  int fakeit_bot;
-  int fakeit_scroll;
-  int redraw_all;
-
-  int use_shm,use_cmap,use_color;
-  int bilevel_signal;
-
-#ifdef HAVE_XSHM_EXTENSION
-  XShmSegmentInfo shm_info;
-#endif
-  int visdepth,visclass,visbits;
-  int red_invprec, red_shift;
-  int green_invprec, green_shift;
-  int blue_invprec, blue_shift;
-  unsigned int red_mask, green_mask, blue_mask;
-
-  Colormap colormap;
   int usewidth,useheight,xrepl,subwidth;
-  XImage *image; /* usewidth * useheight */
-  GC gc;
+  struct framebuffer *framebuffer;
+  struct framebuffer_driver framebuffer_driver;
   int screen_xo,screen_yo; /* centers image in window */
 
   int flutter_horiz_desync;
-  int flutter_tint;
 
+#ifdef DEBUG
   struct timeval last_display_time;
-  int need_clear;
-
+#endif
 
   /* Add hash (in the radio sense, not the programming sense.) These
      are the small white streaks that appear in quasi-regular patterns
@@ -201,6 +166,7 @@ typedef struct analogtv_s {
   unsigned int red_values[ANALOGTV_CV_MAX];
   unsigned int green_values[ANALOGTV_CV_MAX];
   unsigned int blue_values[ANALOGTV_CV_MAX];
+  unsigned int alpha_value;
 
   unsigned long colors[256];
   int cmap_y_levels;
@@ -233,92 +199,20 @@ typedef struct analogtv_s {
   float puheight;
 } analogtv;
 
-
-analogtv *analogtv_allocate(Display *dpy, Window window);
+analogtv *analogtv_allocate(int width, int height, struct framebuffer_driver framebuffer_driver);
 analogtv_input *analogtv_input_allocate(void);
 
 /* call if window size changes */
-void analogtv_reconfigure(analogtv *it);
+void analogtv_reconfigure(analogtv *it, int width, int height);
 
-void analogtv_set_defaults(analogtv *it, char *prefix);
+void analogtv_set_defaults(analogtv *it);
 void analogtv_release(analogtv *it);
-int analogtv_set_demod(analogtv *it);
 void analogtv_setup_frame(analogtv *it);
 void analogtv_setup_sync(analogtv_input *input, int do_cb, int do_ssavi);
 void analogtv_draw(analogtv *it, double noiselevel,
                    const analogtv_reception *const *recs, unsigned rec_count);
 
-int analogtv_load_ximage(analogtv *it, analogtv_input *input, XImage *pic_im);
-
 void analogtv_reception_update(analogtv_reception *inp);
 
-void analogtv_setup_teletext(analogtv_input *input);
-
-
-/* Functions for rendering content into an analogtv_input */
-
-void analogtv_make_font(Display *dpy, Window window,
-                        analogtv_font *f, int w, int h, char *fontname);
-int analogtv_font_pixel(analogtv_font *f, int c, int x, int y);
-void analogtv_font_set_pixel(analogtv_font *f, int c, int x, int y, int value);
-void analogtv_font_set_char(analogtv_font *f, int c, char *s);
-void analogtv_lcp_to_ntsc(double luma, double chroma, double phase,
-                          int ntsc[4]);
-
-
-void analogtv_draw_solid(analogtv_input *input,
-                         int left, int right, int top, int bot,
-                         int ntsc[4]);
-
-void analogtv_draw_solid_rel_lcp(analogtv_input *input,
-                                 double left, double right,
-                                 double top, double bot,
-                                 double luma, double chroma, double phase);
-
-void analogtv_draw_char(analogtv_input *input, analogtv_font *f,
-                        int c, int x, int y, int ntsc[4]);
-void analogtv_draw_string(analogtv_input *input, analogtv_font *f,
-                          char *s, int x, int y, int ntsc[4]);
-void analogtv_draw_string_centered(analogtv_input *input, analogtv_font *f,
-                                   char *s, int x, int y, int ntsc[4]);
-void analogtv_draw_xpm(analogtv *tv, analogtv_input *input,
-                       const char * const *xpm, int left, int top);
-
-int analogtv_handle_events (analogtv *it);
-
-#ifdef HAVE_XSHM_EXTENSION
-#define ANALOGTV_DEFAULTS_SHM "*useSHM:           True",
-#else
-#define ANALOGTV_DEFAULTS_SHM
-#endif
-
-#ifndef USE_IPHONE
-# define ANALOGTV_DEF_BRIGHTNESS "2"
-# define ANALOGTV_DEF_CONTRAST "150"
-#else
-  /* Need to really crank this up for it to look good on the iPhone screen. */
-# define ANALOGTV_DEF_BRIGHTNESS "3"
-# define ANALOGTV_DEF_CONTRAST "1000"
-#endif
-
-#define ANALOGTV_DEFAULTS \
-  "*TVColor:         70", \
-  "*TVTint:          5",  \
-  "*TVBrightness:  " ANALOGTV_DEF_BRIGHTNESS,  \
-  "*TVContrast:    " ANALOGTV_DEF_CONTRAST, \
-  "*Background:      Black", \
-  "*use_cmap:        0",  \
-  "*geometry:	     800x600", \
-  "*fpsSolid:	     True", \
-  THREAD_DEFAULTS \
-  ANALOGTV_DEFAULTS_SHM
-
-#define ANALOGTV_OPTIONS \
-  THREAD_OPTIONS \
-  { "-use-cmap",        ".use_cmap",     XrmoptionSepArg, 0 }, \
-  { "-tv-color",        ".TVColor",      XrmoptionSepArg, 0 }, \
-  { "-tv-tint",         ".TVTint",       XrmoptionSepArg, 0 }, \
-  { "-tv-brightness",   ".TVBrightness", XrmoptionSepArg, 0 }, \
-  { "-tv-contrast",     ".TVContrast",   XrmoptionSepArg, 0 },
 
 #endif /* _XSCREENSAVER_ANALOGTV_H */

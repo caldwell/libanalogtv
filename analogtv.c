@@ -1,4 +1,4 @@
-/* analogtv, Copyright (c) 2003, 2004 Trevor Blackwell <tlb@tlb.org>
+/* analogtv, Copyright (c) 2003, 2004 Trevor Blackwell <tlb@tlb.org> -*- c-basic-offset: 2; -*-
  *
  * Permission to use, copy, modify, distribute, and sell this software and its
  * documentation for any purpose is hereby granted without fee, provided that
@@ -59,24 +59,21 @@
   Fixed a bug or two.
 */
 
-#ifdef HAVE_COCOA
-# include "jwxyz.h"
-#else /* !HAVE_COCOA */
-# include <X11/Xlib.h>
-# include <X11/Xutil.h>
-#endif
 #include <limits.h>
 
 #include <assert.h>
 #include <errno.h>
-#include "utils.h"
-#include "resources.h"
+#include <math.h>
+#include <stdbool.h>
+#include <string.h>
 #include "analogtv.h"
-#include "yarandom.h"
-#include "grabscreen.h"
-#include "visual.h"
+#include "random.h"
 
 /* #define DEBUG 1 */
+
+#ifdef DEBUG
+#include <stdio.h>
+#endif
 
 #if defined(DEBUG) && (defined(__linux) || defined(__FreeBSD__))
 /* only works on linux + freebsd */
@@ -147,6 +144,8 @@ static float puramp(const analogtv *it, float tc, float start, float over)
 */
 
 /* localbyteorder is MSBFirst or LSBFirst */
+#define LSBFirst 0
+#define MSBFirst 1
 static int localbyteorder;
 static const double float_low8_ofs=8388608.0;
 static int float_extraction_works;
@@ -186,18 +185,11 @@ analogtv_init(void)
 }
 
 void
-analogtv_set_defaults(analogtv *it, char *prefix)
+analogtv_set_defaults(analogtv *it)
 {
-  char buf[256];
-
-  sprintf(buf,"%sTVTint",prefix);
-  it->tint_control = get_float_resource(it->dpy, buf,"TVTint");
-  sprintf(buf,"%sTVColor",prefix);
-  it->color_control = get_float_resource(it->dpy, buf,"TVColor")/100.0;
-  sprintf(buf,"%sTVBrightness",prefix);
-  it->brightness_control = get_float_resource(it->dpy, buf,"TVBrightness") / 100.0;
-  sprintf(buf,"%sTVContrast",prefix);
-  it->contrast_control = get_float_resource(it->dpy, buf,"TVContrast") / 100.0;
+  it->color_control = 70/100.0;
+  it->brightness_control = 2/100.0;
+  it->contrast_control = 150/100.0;
   it->height_control = 1.0;
   it->width_control = 1.0;
   it->squish_control = 0.0;
@@ -211,24 +203,15 @@ analogtv_set_defaults(analogtv *it, char *prefix)
   it->squeezebottom=frand(5.0)-1.0;
 
 #ifdef DEBUG
-  printf("analogtv: prefix=%s\n",prefix);
   printf("  use: shm=%d cmap=%d color=%d\n",
          it->use_shm,it->use_cmap,it->use_color);
   printf("  controls: tint=%g color=%g brightness=%g contrast=%g\n",
          it->tint_control, it->color_control, it->brightness_control,
          it->contrast_control);
-/*  printf("  freq_error %g: %g %d\n",
-         it->freq_error, it->freq_error_inc, it->flutter_tint); */
   printf("  desync: %g %d\n",
          it->horiz_desync, it->flutter_horiz_desync);
   printf("  hashnoise rpm: %g\n",
          it->hashnoise_rpm);
-  printf("  vis: %d %d %d\n",
-         it->visclass, it->visbits, it->visdepth);
-  printf("  shift: %d-%d %d-%d %d-%d\n",
-         it->red_invprec,it->red_shift,
-         it->green_invprec,it->green_shift,
-         it->blue_invprec,it->blue_shift);
   printf("  size: %d %d  %d %d  xrepl=%d\n",
          it->usewidth, it->useheight,
          it->screen_xo, it->screen_yo, it->xrepl);
@@ -251,67 +234,8 @@ analogtv_set_defaults(analogtv *it, char *prefix)
 
 }
 
-extern Bool mono_p; /* shoot me */
-
-static void
-analogtv_free_image(analogtv *it)
-{
-  if (it->image) {
-    if (it->use_shm) {
-#ifdef HAVE_XSHM_EXTENSION
-      destroy_xshm_image(it->dpy, it->image, &it->shm_info);
-#endif
-    } else {
-      thread_free(it->image->data);
-      it->image->data = NULL;
-      XDestroyImage(it->image);
-    }
-    it->image=NULL;
-  }
-}
-
-static void
-analogtv_alloc_image(analogtv *it)
-{
-  /* On failure, it->image is NULL. */
-
-  unsigned bits_per_pixel = get_bits_per_pixel(it->dpy, it->xgwa.depth);
-  unsigned align = thread_memory_alignment(it->dpy) * 8 - 1;
-  /* Width is in bits. */
-  unsigned width = (it->usewidth * bits_per_pixel + align) & ~align;
-
-  if (it->use_shm) {
-#ifdef HAVE_XSHM_EXTENSION
-    it->image=create_xshm_image(it->dpy, it->xgwa.visual, it->xgwa.depth, ZPixmap, 0,
-                                &it->shm_info,
-                                width / bits_per_pixel, it->useheight);
-#endif
-    if (!it->image) it->use_shm=0;
-  }
-  if (!it->image) {
-    it->image = XCreateImage(it->dpy, it->xgwa.visual, it->xgwa.depth, ZPixmap, 0, 0,
-                             it->usewidth, it->useheight, 8, width / 8);
-    if (it->image) {
-      if(thread_malloc((void **)&it->image->data, it->dpy,
-                       it->image->height * it->image->bytes_per_line)) {
-        it->image->data = NULL;
-        XDestroyImage(it->image);
-        it->image = NULL;
-      }
-    }
-  }
-
-  if (it->image) {
-    memset (it->image->data, 0, it->image->height * it->image->bytes_per_line);
-  } else {
-    /* Not enough memory. Maybe try a smaller window. */
-    fprintf(stderr, "analogtv: %s\n", strerror(ENOMEM));
-  }
-}
-
-
-static void
-analogtv_configure(analogtv *it)
+void
+analogtv_reconfigure(analogtv *it, int width, int height)
 {
   int oldwidth=it->usewidth;
   int oldheight=it->useheight;
@@ -335,8 +259,8 @@ analogtv_configure(analogtv *it)
   float ratio;
   float height_snap=0.025;
 
-  hlim = it->xgwa.height;
-  wlim = it->xgwa.width;
+  hlim = height;
+  wlim = width;
   ratio = wlim / (float) hlim;
 
 #ifdef USE_IPHONE
@@ -352,7 +276,7 @@ analogtv_configure(analogtv *it)
 # ifdef DEBUG
       fprintf (stderr,
                "size: minimal: %dx%d in %dx%d (%.3f < %.3f < %.3f)\n",
-               wlim, hlim, it->xgwa.width, it->xgwa.height,
+               wlim, hlim, width, height,
                min_ratio, ratio, max_ratio);
 # endif
     }
@@ -370,7 +294,7 @@ analogtv_configure(analogtv *it)
 # ifdef DEBUG
       fprintf (stderr,
                "size: center H: %dx%d in %dx%d (%.3f < %.3f < %.3f)\n",
-               wlim, hlim, it->xgwa.width, it->xgwa.height,
+               wlim, hlim, width, height,
                min_ratio, ratio, max_ratio);
 # endif
     }
@@ -380,7 +304,7 @@ analogtv_configure(analogtv *it)
 # ifdef DEBUG
       fprintf (stderr,
                "size: center V: %dx%d in %dx%d (%.3f < %.3f < %.3f)\n",
-               wlim, hlim, it->xgwa.width, it->xgwa.height,
+               wlim, hlim, width, height,
                min_ratio, ratio, max_ratio);
 # endif
     }
@@ -403,20 +327,12 @@ analogtv_configure(analogtv *it)
     if (it->xrepl>2) it->xrepl=2;
     it->subwidth=it->usewidth/it->xrepl;
 
-    analogtv_free_image(it);
-    analogtv_alloc_image(it);
+    it->framebuffer_driver.free(it->framebuffer);
+    it->framebuffer = it->framebuffer_driver.alloc(it->usewidth, it->useheight);
   }
 
-  it->screen_xo = (it->xgwa.width-it->usewidth)/2;
-  it->screen_yo = (it->xgwa.height-it->useheight)/2;
-  it->need_clear=1;
-}
-
-void
-analogtv_reconfigure(analogtv *it)
-{
-  XGetWindowAttributes (it->dpy, it->window, &it->xgwa);
-  analogtv_configure(it);
+  it->screen_xo = (width-it->usewidth)/2;
+  it->screen_yo = (height-it->useheight)/2;
 }
 
 /* Can be any power-of-two <= 32. 16 a slightly better choice for 2-3 threads. */
@@ -441,7 +357,7 @@ static int analogtv_thread_create(void *thread_raw, struct threadpool *threads,
   thread->it = GET_PARENT_OBJ(analogtv, threads, threads);
   thread->thread_id = thread_id;
 
-  align = thread_memory_alignment(thread->it->dpy) /
+  align = thread_memory_alignment() /
             sizeof(thread->it->signal_subtotals[0]);
   if (!align)
     align = 1;
@@ -460,7 +376,7 @@ static void analogtv_thread_destroy(void *thread_raw)
 }
 
 analogtv *
-analogtv_allocate(Display *dpy, Window window)
+analogtv_allocate(int width, int height, struct framebuffer_driver framebuffer_driver)
 {
   static const struct threadpool_class cls = {
     sizeof(analogtv_thread),
@@ -468,7 +384,6 @@ analogtv_allocate(Display *dpy, Window window)
     analogtv_thread_destroy
   };
 
-  XGCValues gcv;
   analogtv *it=NULL;
   int i;
   const size_t rx_signal_len = ANALOGTV_SIGNAL_LEN + 2*ANALOGTV_H;
@@ -481,101 +396,55 @@ analogtv_allocate(Display *dpy, Window window)
   it->rx_signal=NULL;
   it->signal_subtotals=NULL;
 
-  it->dpy=dpy;
-  it->window=window;
-
-  if (thread_malloc((void **)&it->rx_signal, dpy,
+  if (thread_malloc((void **)&it->rx_signal,
                     sizeof(it->rx_signal[0]) * rx_signal_len))
     goto fail;
 
   assert(!(ANALOGTV_SIGNAL_LEN % ANALOGTV_SUBTOTAL_LEN));
-  if (thread_malloc((void **)&it->signal_subtotals, dpy,
+  if (thread_malloc((void **)&it->signal_subtotals,
                     sizeof(it->signal_subtotals[0]) *
                      (rx_signal_len / ANALOGTV_SUBTOTAL_LEN)))
     goto fail;
 
-  if (threadpool_create(&it->threads, &cls, dpy, hardware_concurrency(dpy)))
+  if (threadpool_create(&it->threads, &cls, hardware_concurrency()))
     goto fail;
 
   assert(it->threads.count);
 
   it->shrinkpulse=-1;
 
-  it->n_colors=0;
-
-#ifdef HAVE_XSHM_EXTENSION
-  it->use_shm=1;
-#else
-  it->use_shm=0;
-#endif
-
-  XGetWindowAttributes (it->dpy, it->window, &it->xgwa);
-
-  it->screen=it->xgwa.screen;
-  it->colormap=it->xgwa.colormap;
-  it->visclass=it->xgwa.visual->class;
-  it->visbits=it->xgwa.visual->bits_per_rgb;
-  it->visdepth=it->xgwa.depth;
-  if (it->visclass == TrueColor || it->visclass == DirectColor) {
-    if (get_integer_resource (it->dpy, "use_cmap", "Integer")) {
-      it->use_cmap=1;
+  {
+    int red_invprec, red_shift;
+    int green_invprec, green_shift;
+    int blue_invprec, blue_shift;
+    red_invprec = green_invprec = blue_invprec = 16 - 8;
+    if (localbyteorder == MSBFirst) {
+      red_shift   = 24;
+      green_shift = 16;
+      blue_shift  = 8;
+      it->alpha_value = 0x000000ff;
     } else {
-      it->use_cmap=0;
-    }
-    it->use_color=!mono_p;
-  }
-  else if (it->visclass == PseudoColor || it->visclass == StaticColor) {
-    it->use_cmap=1;
-    it->use_color=!mono_p;
-  }
-  else {
-    it->use_cmap=1;
-    it->use_color=0;
-  }
-
-  it->red_mask=it->xgwa.visual->red_mask;
-  it->green_mask=it->xgwa.visual->green_mask;
-  it->blue_mask=it->xgwa.visual->blue_mask;
-  it->red_shift=it->red_invprec=-1;
-  it->green_shift=it->green_invprec=-1;
-  it->blue_shift=it->blue_invprec=-1;
-  if (!it->use_cmap) {
-    /* Is there a standard way to do this? Does this handle all cases? */
-    int shift, prec;
-    for (shift=0; shift<32; shift++) {
-      for (prec=1; prec<16 && prec<40-shift; prec++) {
-        unsigned long mask=(0xffffUL>>(16-prec)) << shift;
-        if (it->red_shift<0 && mask==it->red_mask)
-          it->red_shift=shift, it->red_invprec=16-prec;
-        if (it->green_shift<0 && mask==it->green_mask)
-          it->green_shift=shift, it->green_invprec=16-prec;
-        if (it->blue_shift<0 && mask==it->blue_mask)
-          it->blue_shift=shift, it->blue_invprec=16-prec;
-      }
-    }
-    if (it->red_shift<0 || it->green_shift<0 || it->blue_shift<0) {
-      if (0) fprintf(stderr,"Can't figure out color space\n");
-      goto fail;
+      red_shift   = 0;
+      green_shift = 8;
+      blue_shift  = 16;
+      it->alpha_value = 0xff000000;
     }
 
     for (i=0; i<ANALOGTV_CV_MAX; i++) {
       int intensity=pow(i/256.0, 0.8)*65535.0; /* gamma correction */
       if (intensity>65535) intensity=65535;
-      it->red_values[i]=((intensity>>it->red_invprec)<<it->red_shift);
-      it->green_values[i]=((intensity>>it->green_invprec)<<it->green_shift);
-      it->blue_values[i]=((intensity>>it->blue_invprec)<<it->blue_shift);
+      it->red_values[i]=((intensity>>red_invprec)<<red_shift);
+      it->green_values[i]=((intensity>>green_invprec)<<green_shift);
+      it->blue_values[i]=((intensity>>blue_invprec)<<blue_shift);
     }
-
+    // printf("red   %08x -> %08x\n", it->red_values[0],   it->red_values[ANALOGTV_CV_MAX-1]);
+    // printf("green %08x -> %08x\n", it->green_values[0], it->green_values[ANALOGTV_CV_MAX-1]);
+    // printf("blue  %08x -> %08x\n", it->blue_values[0],  it->blue_values[ANALOGTV_CV_MAX-1]);
+    // printf("alpha %8s    %08x\n", "", it->alpha_value);
   }
 
-  gcv.background=get_pixel_resource(it->dpy, it->colormap,
-                                    "background", "Background");
-
-  it->gc = XCreateGC(it->dpy, it->window, GCBackground, &gcv);
-  XSetWindowBackground(it->dpy, it->window, gcv.background);
-  XClearWindow(dpy,window);
-
-  analogtv_configure(it);
+  it->framebuffer_driver = framebuffer_driver;
+  analogtv_reconfigure(it, width, height);
 
   return it;
 
@@ -593,22 +462,8 @@ analogtv_allocate(Display *dpy, Window window)
 void
 analogtv_release(analogtv *it)
 {
-  if (it->image) {
-    if (it->use_shm) {
-#ifdef HAVE_XSHM_EXTENSION
-      destroy_xshm_image(it->dpy, it->image, &it->shm_info);
-#endif
-    } else {
-      thread_free(it->image->data);
-      it->image->data = NULL;
-      XDestroyImage(it->image);
-    }
-    it->image=NULL;
-  }
-  if (it->gc) XFreeGC(it->dpy, it->gc);
-  it->gc=NULL;
-  if (it->n_colors) XFreeColors(it->dpy, it->colormap, it->colors, it->n_colors, 0L);
-  it->n_colors=0;
+  if (it->framebuffer)
+    it->framebuffer_driver.free(it->framebuffer);
   threadpool_destroy(&it->threads);
   thread_free(it->rx_signal);
   thread_free(it->signal_subtotals);
@@ -636,116 +491,7 @@ analogtv_release(analogtv *it)
   The left side would be in correct tint because it had just gotten
   resynchronized with the color burst.
 
-  If we're using a colormap, set it up.
 */
-int
-analogtv_set_demod(analogtv *it)
-{
-  int y_levels=10,i_levels=5,q_levels=5;
-
-  /*
-    In principle, we might be able to figure out how to adjust the
-    color map frame-by-frame to get some nice color bummage. But I'm
-    terrified of changing the color map because we'll get flashing.
-
-    I can hardly believe we still have to deal with colormaps. They're
-    like having NEAR PTRs: an enormous hassle for the programmer just
-    to save on memory. They should have been deprecated by 1995 or
-    so. */
-
- cmap_again:
-  if (it->use_cmap && !it->n_colors) {
-
-    if (it->n_colors) {
-      XFreeColors(it->dpy, it->colormap, it->colors, it->n_colors, 0L);
-      it->n_colors=0;
-    }
-
-    {
-      int yli,qli,ili;
-      for (yli=0; yli<y_levels; yli++) {
-        for (ili=0; ili<i_levels; ili++) {
-          for (qli=0; qli<q_levels; qli++) {
-            double interpy,interpi,interpq;
-            double levelmult=700.0;
-            int r,g,b;
-            XColor col;
-
-            interpy=100.0 * ((double)yli/y_levels);
-            interpi=50.0 * (((double)ili-(0.5*i_levels))/(double)i_levels);
-            interpq=50.0 * (((double)qli-(0.5*q_levels))/(double)q_levels);
-
-            r=(int)((interpy + 1.04*interpi + 0.624*interpq)*levelmult);
-            g=(int)((interpy - 0.276*interpi - 0.639*interpq)*levelmult);
-            b=(int)((interpy - 1.105*interpi + 1.729*interpq)*levelmult);
-            if (r<0) r=0;
-            if (r>65535) r=65535;
-            if (g<0) g=0;
-            if (g>65535) g=65535;
-            if (b<0) b=0;
-            if (b>65535) b=65535;
-
-#ifdef DEBUG
-            printf("%0.2f %0.2f %0.2f => %02x%02x%02x\n",
-                   interpy, interpi, interpq,
-                   r/256,g/256,b/256);
-#endif
-
-            col.red=r;
-            col.green=g;
-            col.blue=b;
-            col.pixel=0;
-            if (!XAllocColor(it->dpy, it->colormap, &col)) {
-              if (q_levels > y_levels*4/12)
-                q_levels--;
-              else if (i_levels > y_levels*5/12)
-                i_levels--;
-              else
-                y_levels--;
-
-              if (y_levels<2)
-                return -1;
-              goto cmap_again;
-            }
-            it->colors[it->n_colors++]=col.pixel;
-          }
-        }
-      }
-
-      it->cmap_y_levels=y_levels;
-      it->cmap_i_levels=i_levels;
-      it->cmap_q_levels=q_levels;
-    }
-  }
-
-  return 0;
-}
-
-#if 0
-unsigned int
-analogtv_line_signature(analogtv_input *input, int lineno)
-{
-  int i;
-  char *origsignal=&input->signal[(lineno+input->vsync)
-                                  %ANALOGTV_V][input->line_hsync[lineno]];
-  unsigned int hash=0;
-
-  /* probably lame */
-  for (i=0; i<ANALOGTV_PIC_LEN; i++) {
-    int c=origsignal[i];
-    hash = hash + (hash<<17) + c;
-  }
-
-  hash += input->line_hsync[lineno];
-  hash ^= hash >> 2;
-  /*
-  hash += input->hashnoise_times[lineno];
-  hash ^= hash >> 2;
-  */
-
-  return hash;
-}
-#endif
 
 
 /* Here we model the analog circuitry of an NTSC television.
@@ -804,8 +550,6 @@ analogtv_ntsc_to_yiq(const analogtv *it, int lineno, const float *signal,
 
 #if 0
   if (lineno==100) {
-    printf("multiq = [%0.3f %0.3f %0.3f %0.3f] ",
-           it->multiq[60],it->multiq[61],it->multiq[62],it->multiq[63]);
     printf("it->line_cb_phase = [%0.3f %0.3f %0.3f %0.3f]\n",
            it->line_cb_phase[lineno][0],it->line_cb_phase[lineno][1],
            it->line_cb_phase[lineno][2],it->line_cb_phase[lineno][3]);
@@ -909,8 +653,6 @@ void
 analogtv_setup_frame(analogtv *it)
 {
   int i,x,y;
-
-  it->redraw_all=0;
 
   if (it->flutter_horiz_desync) {
     /* Horizontal sync during vertical sync instability. */
@@ -1099,36 +841,6 @@ analogtv_sync(analogtv *it)
 
   it->cur_hsync = cur_hsync;
   it->cur_vsync = cur_vsync;
-}
-
-static double
-analogtv_levelmult(const analogtv *it, int level)
-{
-  static const double levelfac[3]={-7.5, 5.5, 24.5};
-  return (40.0 + levelfac[level]*puramp(it, 3.0, 6.0, 1.0))/256.0;
-}
-
-static int
-analogtv_level(const analogtv *it, int y, int ytop, int ybot)
-{
-  int level;
-  if (ybot-ytop>=7) {
-    if (y==ytop || y==ybot-1) level=0;
-    else if (y==ytop+1 || y==ybot-2) level=1;
-    else level=2;
-  }
-  else if (ybot-ytop>=5) {
-    if (y==ytop || y==ybot-1) level=0;
-    else level=2;
-  }
-  else if (ybot-ytop>=3) {
-    if (y==ytop) level=0;
-    else level=2;
-  }
-  else {
-    level=2;
-  }
-  return level;
 }
 
 /*
@@ -1381,7 +1093,7 @@ analogtv_blast_imagerow(const analogtv *it,
                         float *rgbf, float *rgbf_end,
                         int ytop, int ybot)
 {
-  int i,j,x,y;
+  int i,y;
   float *rpf;
   char *level_copyfrom[3];
   int xrepl=it->xrepl;
@@ -1390,7 +1102,7 @@ analogtv_blast_imagerow(const analogtv *it,
   for (i=0; i<3; i++) level_copyfrom[i]=NULL;
 
   for (y=ytop; y<ybot; y++) {
-    char *rowdata=it->image->data + y*it->image->bytes_per_line;
+    char *rowdata=it->framebuffer->pixels + y*it->framebuffer->bytes_per_line;
     unsigned line = y-ytop;
 
     int level=it->leveltable[lineheight][line].index;
@@ -1405,17 +1117,12 @@ analogtv_blast_imagerow(const analogtv *it,
        routines. */
 
     if (level_copyfrom[level]) {
-      memcpy(rowdata, level_copyfrom[level], it->image->bytes_per_line);
+      memcpy(rowdata, level_copyfrom[level], it->framebuffer->bytes_per_line);
     }
     else {
       level_copyfrom[level] = rowdata;
 
-      if (0) {
-      }
-      else if (it->image->format==ZPixmap &&
-               it->image->bits_per_pixel==32 &&
-               sizeof(unsigned int)==4 &&
-               it->image->byte_order==localbyteorder) {
+      if (1/* all we support is 32 bit RGBA format */) {
         /* int is more likely to be 32 bits than long */
         unsigned int *pixelptr=(unsigned int *)rowdata;
         unsigned int pix;
@@ -1429,77 +1136,14 @@ analogtv_blast_imagerow(const analogtv *it,
           if (ntscbi>=ANALOGTV_CV_MAX) ntscbi=ANALOGTV_CV_MAX-1;
           pix = (it->red_values[ntscri] |
                  it->green_values[ntscgi] |
-                 it->blue_values[ntscbi]);
+                 it->blue_values[ntscbi] |
+                 it->alpha_value);
           pixelptr[0] = pix;
           if (xrepl>=2) {
             pixelptr[1] = pix;
             if (xrepl>=3) pixelptr[2] = pix;
           }
           pixelptr+=xrepl;
-        }
-      }
-      else if (it->image->format==ZPixmap &&
-               it->image->bits_per_pixel==16 &&
-               sizeof(unsigned short)==2 &&
-               float_extraction_works &&
-               it->image->byte_order==localbyteorder) {
-        unsigned short *pixelptr=(unsigned short *)rowdata;
-        float r2,g2,b2;
-        float_extract_t r1,g1,b1;
-        unsigned short pix;
-
-        for (rpf=rgbf; rpf!=rgbf_end; rpf+=3) {
-          r2=rpf[0]; g2=rpf[1]; b2=rpf[2];
-          r1.f=r2 * levelmult+float_low8_ofs;
-          g1.f=g2 * levelmult+float_low8_ofs;
-          b1.f=b2 * levelmult+float_low8_ofs;
-          pix = (it->red_values[r1.i & 0x3ff] |
-                 it->green_values[g1.i & 0x3ff] |
-                 it->blue_values[b1.i & 0x3ff]);
-          pixelptr[0] = pix;
-          if (xrepl>=2) {
-            pixelptr[1] = pix;
-            if (xrepl>=3) pixelptr[2] = pix;
-          }
-          pixelptr+=xrepl;
-        }
-      }
-      else if (it->image->format==ZPixmap &&
-               it->image->bits_per_pixel==16 &&
-               sizeof(unsigned short)==2 &&
-               it->image->byte_order==localbyteorder) {
-        unsigned short *pixelptr=(unsigned short *)rowdata;
-        unsigned short pix;
-
-        for (rpf=rgbf; rpf!=rgbf_end; rpf+=3) {
-          int r1=rpf[0] * levelmult;
-          int g1=rpf[1] * levelmult;
-          int b1=rpf[2] * levelmult;
-          if (r1>=ANALOGTV_CV_MAX) r1=ANALOGTV_CV_MAX-1;
-          if (g1>=ANALOGTV_CV_MAX) g1=ANALOGTV_CV_MAX-1;
-          if (b1>=ANALOGTV_CV_MAX) b1=ANALOGTV_CV_MAX-1;
-          pix = it->red_values[r1] | it->green_values[g1] | it->blue_values[b1];
-          pixelptr[0] = pix;
-          if (xrepl>=2) {
-            pixelptr[1] = pix;
-            if (xrepl>=3) pixelptr[2] = pix;
-          }
-          pixelptr+=xrepl;
-        }
-      }
-      else {
-        for (x=0, rpf=rgbf; rpf!=rgbf_end ; x++, rpf+=3) {
-          int ntscri=rpf[0]*levelmult;
-          int ntscgi=rpf[1]*levelmult;
-          int ntscbi=rpf[2]*levelmult;
-          if (ntscri>=ANALOGTV_CV_MAX) ntscri=ANALOGTV_CV_MAX-1;
-          if (ntscgi>=ANALOGTV_CV_MAX) ntscgi=ANALOGTV_CV_MAX-1;
-          if (ntscbi>=ANALOGTV_CV_MAX) ntscbi=ANALOGTV_CV_MAX-1;
-          for (j=0; j<xrepl; j++) {
-            XPutPixel(it->image, x*xrepl + j, y,
-                      it->red_values[ntscri] | it->green_values[ntscgi] |
-                      it->blue_values[ntscbi]);
-          }
         }
       }
     }
@@ -1524,7 +1168,7 @@ static void analogtv_thread_draw_lines(void *thread_raw)
   for (lineno=ANALOGTV_TOP + thread->thread_id;
        lineno<ANALOGTV_BOT;
        lineno += it->threads.count) {
-    int i,j,x,y;
+    int i;
 
     int slineno, ytop, ybot;
     unsigned signal_offset;
@@ -1595,77 +1239,7 @@ static void analogtv_thread_draw_lines(void *thread_raw)
 #endif
     }
 
-    if (it->use_cmap) {
-      for (y=ytop; y<ybot; y++) {
-        int level=analogtv_level(it, y, ytop, ybot);
-        float levelmult=analogtv_levelmult(it, level);
-        float levelmult_y = levelmult * it->contrast_control
-          * puramp(it, 1.0f, 0.0f, 1.0f) / (0.5f+0.5f*it->puheight) * 0.070f;
-        float levelmult_iq = levelmult * 0.090f;
-
-        analogtv_ntsc_to_yiq(it, lineno, signal,
-                             (scanstart_i>>16)-10, (scanend_i>>16)+10, yiq);
-        pixmultinc=pixrate;
-
-        x=0;
-        i=scanstart_i;
-        while (i<0 && x<it->usewidth) {
-          XPutPixel(it->image, x, y, it->colors[0]);
-          i+=pixmultinc;
-          x++;
-        }
-
-        while (i<scanend_i && x<it->usewidth) {
-          float pixfrac=(i&0xffff)/65536.0f;
-          float invpixfrac=(1.0f-pixfrac);
-          int pati=i>>16;
-          int yli,ili,qli,cmi;
-
-          float interpy=(yiq[pati].y*invpixfrac
-                         + yiq[pati+1].y*pixfrac) * levelmult_y;
-          float interpi=(yiq[pati].i*invpixfrac
-                         + yiq[pati+1].i*pixfrac) * levelmult_iq;
-          float interpq=(yiq[pati].q*invpixfrac
-                         + yiq[pati+1].q*pixfrac) * levelmult_iq;
-
-          yli = (int)(interpy * it->cmap_y_levels);
-          ili = (int)((interpi+0.5f) * it->cmap_i_levels);
-          qli = (int)((interpq+0.5f) * it->cmap_q_levels);
-          if (yli<0) yli=0;
-          if (yli>=it->cmap_y_levels) yli=it->cmap_y_levels-1;
-          if (ili<0) ili=0;
-          if (ili>=it->cmap_i_levels) ili=it->cmap_i_levels-1;
-          if (qli<0) qli=0;
-          if (qli>=it->cmap_q_levels) qli=it->cmap_q_levels-1;
-
-          cmi=qli + it->cmap_i_levels*(ili + it->cmap_q_levels*yli);
-
-#ifdef DEBUG
-          if ((random()%65536)==0) {
-            printf("%0.3f %0.3f %0.3f => %d %d %d => %d\n",
-                   interpy, interpi, interpq,
-                   yli, ili, qli,
-                   cmi);
-          }
-#endif
-
-          for (j=0; j<it->xrepl; j++) {
-            XPutPixel(it->image, x, y,
-                      it->colors[cmi]);
-            x++;
-          }
-          if (i >= squishright_i) {
-            pixmultinc += pixmultinc/squishdiv;
-          }
-          i+=pixmultinc;
-        }
-        while (x<it->usewidth) {
-          XPutPixel(it->image, x, y, it->colors[0]);
-          x++;
-        }
-      }
-    }
-    else {
+    {
       analogtv_ntsc_to_yiq(it, lineno, signal,
                            (scanstart_i>>16)-10, (scanend_i>>16)+10, yiq);
 
@@ -1741,11 +1315,6 @@ analogtv_draw(analogtv *it, double noiselevel,
   int i,lineno;
   int /*bigloadchange,*/drawcount;
   double baseload;
-  int overall_top, overall_bot;
-
-  /* AnalogTV isn't very interesting if there isn't enough RAM. */
-  if (!it->image)
-    return;
 
   it->rx_signal_level = noiselevel;
   for (i = 0; i != rec_count; ++i) {
@@ -1764,7 +1333,6 @@ analogtv_draw(analogtv *it, double noiselevel,
   }
 
   analogtv_setup_frame(it);
-  analogtv_set_demod(it);
 
   it->random0 = random();
   it->random1 = random();
@@ -1817,7 +1385,6 @@ analogtv_draw(analogtv *it, double noiselevel,
 #if 0
     if (it->hashnoise_rpm>0.0 &&
         !(bigloadchange ||
-          it->redraw_all ||
           (slineno<20 && it->flutter_horiz_desync) ||
           it->gaussiannoise_level>30 ||
           ((it->gaussiannoise_level>2.0 ||
@@ -1920,51 +1487,6 @@ analogtv_draw(analogtv *it, double noiselevel,
   }
 #endif
 
-  if (it->need_clear) {
-    XClearWindow(it->dpy, it->window);
-    it->need_clear=0;
-  }
-
-  /*
-    Subtle change: overall_bot was the bottom of the last scan line. Now it's
-    the top of the next-after-the-last scan line. This is the same until
-    the y-dimension is > 2400, note ANALOGTV_MAX_LINEHEIGHT.
-  */
-
-  overall_top=(int)(it->useheight*(1-it->puheight)/2);
-  overall_bot=(int)(it->useheight*(1+it->puheight)/2);
-
-  if (overall_top<0) overall_top=0;
-  if (overall_bot>it->useheight) overall_bot=it->useheight;
-
-  if (overall_top>0) {
-    XClearArea(it->dpy, it->window,
-               it->screen_xo, it->screen_yo,
-               it->usewidth, overall_top, 0);
-  }
-  if (it->useheight > overall_bot) {
-    XClearArea(it->dpy, it->window,
-               it->screen_xo, it->screen_yo+overall_bot,
-               it->usewidth, it->useheight-overall_bot, 0);
-  }
-
-  if (overall_bot > overall_top) {
-    if (it->use_shm) {
-#ifdef HAVE_XSHM_EXTENSION
-      XShmPutImage(it->dpy, it->window, it->gc, it->image,
-                   0, overall_top,
-                   it->screen_xo, it->screen_yo+overall_top,
-                   it->usewidth, overall_bot - overall_top,
-                   False);
-#endif
-    } else {
-      XPutImage(it->dpy, it->window, it->gc, it->image,
-                0, overall_top,
-                it->screen_xo, it->screen_yo+overall_top,
-                it->usewidth, overall_bot - overall_top);
-    }
-  }
-
 #ifdef DEBUG
   if (0) {
     struct timeval tv;
@@ -1990,143 +1512,6 @@ analogtv_input_allocate()
 
   return ret;
 }
-
-/*
-  This takes a screen image and encodes it as a video camera would,
-  including all the bandlimiting and YIQ modulation.
-  This isn't especially tuned for speed.
-*/
-
-int
-analogtv_load_ximage(analogtv *it, analogtv_input *input, XImage *pic_im)
-{
-  int i,x,y;
-  int img_w,img_h;
-  int fyx[7],fyy[7];
-  int fix[4],fiy[4];
-  int fqx[4],fqy[4];
-  XColor col1[ANALOGTV_PIC_LEN];
-  XColor col2[ANALOGTV_PIC_LEN];
-  int multiq[ANALOGTV_PIC_LEN+4];
-  int y_overscan=5; /* overscan this much top and bottom */
-  int y_scanlength=ANALOGTV_VISLINES+2*y_overscan;
-
-  img_w=pic_im->width;
-  img_h=pic_im->height;
-  
-  for (i=0; i<ANALOGTV_PIC_LEN+4; i++) {
-    double phase=90.0-90.0*i;
-    double ampl=1.0;
-    multiq[i]=(int)(-cos(3.1415926/180.0*(phase-303)) * 4096.0 * ampl);
-  }
-
-  for (y=0; y<y_scanlength; y++) {
-    int picy1=(y*img_h)/y_scanlength;
-    int picy2=(y*img_h + y_scanlength/2)/y_scanlength;
-
-    for (x=0; x<ANALOGTV_PIC_LEN; x++) {
-      int picx=(x*img_w)/ANALOGTV_PIC_LEN;
-      col1[x].pixel=XGetPixel(pic_im, picx, picy1);
-      col2[x].pixel=XGetPixel(pic_im, picx, picy2);
-    }
-    XQueryColors(it->dpy, it->colormap, col1, ANALOGTV_PIC_LEN);
-    XQueryColors(it->dpy, it->colormap, col2, ANALOGTV_PIC_LEN);
-
-    for (i=0; i<7; i++) fyx[i]=fyy[i]=0;
-    for (i=0; i<4; i++) fix[i]=fiy[i]=fqx[i]=fqy[i]=0.0;
-
-    for (x=0; x<ANALOGTV_PIC_LEN; x++) {
-      int rawy,rawi,rawq;
-      int filty,filti,filtq;
-      int composite;
-      /* Compute YIQ as:
-           y=0.30 r + 0.59 g + 0.11 b
-           i=0.60 r - 0.28 g - 0.32 b
-           q=0.21 r - 0.52 g + 0.31 b
-          The coefficients below are in .4 format */
-
-      rawy=( 5*col1[x].red + 11*col1[x].green + 2*col1[x].blue +
-             5*col2[x].red + 11*col2[x].green + 2*col2[x].blue)>>7;
-      rawi=(10*col1[x].red -  4*col1[x].green - 5*col1[x].blue +
-            10*col2[x].red -  4*col2[x].green - 5*col2[x].blue)>>7;
-      rawq=( 3*col1[x].red -  8*col1[x].green + 5*col1[x].blue +
-             3*col2[x].red -  8*col2[x].green + 5*col2[x].blue)>>7;
-
-      /* Filter y at with a 4-pole low-pass Butterworth filter at 3.5 MHz
-         with an extra zero at 3.5 MHz, from
-         mkfilter -Bu -Lp -o 4 -a 2.1428571429e-01 0 -Z 2.5e-01 -l */
-
-      fyx[0] = fyx[1]; fyx[1] = fyx[2]; fyx[2] = fyx[3];
-      fyx[3] = fyx[4]; fyx[4] = fyx[5]; fyx[5] = fyx[6];
-      fyx[6] = (rawy * 1897) >> 16;
-      fyy[0] = fyy[1]; fyy[1] = fyy[2]; fyy[2] = fyy[3];
-      fyy[3] = fyy[4]; fyy[4] = fyy[5]; fyy[5] = fyy[6];
-      fyy[6] = (fyx[0]+fyx[6]) + 4*(fyx[1]+fyx[5]) + 7*(fyx[2]+fyx[4]) + 8*fyx[3]
-        + ((-151*fyy[2] + 8115*fyy[3] - 38312*fyy[4] + 36586*fyy[5]) >> 16);
-      filty = fyy[6];
-
-      /* Filter I at 1.5 MHz. 3 pole Butterworth from
-         mkfilter -Bu -Lp -o 3 -a 1.0714285714e-01 0 */
-
-      fix[0] = fix[1]; fix[1] = fix[2]; fix[2] = fix[3];
-      fix[3] = (rawi * 1413) >> 16;
-      fiy[0] = fiy[1]; fiy[1] = fiy[2]; fiy[2] = fiy[3];
-      fiy[3] = (fix[0]+fix[3]) + 3*(fix[1]+fix[2])
-        + ((16559*fiy[0] - 72008*fiy[1] + 109682*fiy[2]) >> 16);
-      filti = fiy[3];
-
-      /* Filter Q at 0.5 MHz. 3 pole Butterworth from
-         mkfilter -Bu -Lp -o 3 -a 3.5714285714e-02 0 -l */
-
-      fqx[0] = fqx[1]; fqx[1] = fqx[2]; fqx[2] = fqx[3];
-      fqx[3] = (rawq * 75) >> 16;
-      fqy[0] = fqy[1]; fqy[1] = fqy[2]; fqy[2] = fqy[3];
-      fqy[3] = (fqx[0]+fqx[3]) + 3 * (fqx[1]+fqx[2])
-        + ((2612*fqy[0] - 9007*fqy[1] + 10453 * fqy[2]) >> 12);
-      filtq = fqy[3];
-
-
-      composite = filty + ((multiq[x] * filti + multiq[x+3] * filtq)>>12);
-      composite = ((composite*100)>>14) + ANALOGTV_BLACK_LEVEL;
-      if (composite>125) composite=125;
-      if (composite<0) composite=0;
-      input->signal[y-y_overscan+ANALOGTV_TOP][x+ANALOGTV_PIC_START] = composite;
-    }
-  }
-
-  return 1;
-}
-
-#if 0
-void analogtv_channel_noise(analogtv_input *it, analogtv_input *s2)
-{
-  int x,y,newsig;
-  int change=random()%ANALOGTV_V;
-  unsigned int fastrnd=random();
-  double hso=(int)(random()%1000)-500;
-  int yofs=random()%ANALOGTV_V;
-  int noise;
-
-  for (y=change; y<ANALOGTV_V; y++) {
-    int s2y=(y+yofs)%ANALOGTV_V;
-    int filt=0;
-    int noiselevel=60000 / (y-change+100);
-
-    it->line_hsync[y] = s2->line_hsync[y] + (int)hso;
-    hso *= 0.9;
-    for (x=0; x<ANALOGTV_H; x++) {
-      FASTRND;
-      filt+= (-filt/16) + (int)(fastrnd&0xfff)-0x800;
-      noise=(filt*noiselevel)>>16;
-      newsig=s2->signal[s2y][x] + noise;
-      if (newsig>120) newsig=120;
-      if (newsig<0) newsig=0;
-      it->signal[y][x]=newsig;
-    }
-  }
-  s2->vsync=yofs;
-}
-#endif
 
 
 #ifdef FIXME
@@ -2185,320 +1570,3 @@ analogtv_reception_update(analogtv_reception *rec)
   }
 }
 
-
-/* jwz: since MacOS doesn't have "6x10", I dumped this font to an XBM...
- */
-
-#include "images/6x10font.xbm"
-
-void
-analogtv_make_font(Display *dpy, Window window, analogtv_font *f,
-                   int w, int h, char *fontname)
-{
-  int i;
-  XFontStruct *font;
-  Pixmap text_pm;
-  GC gc;
-  XGCValues gcv;
-  XWindowAttributes xgwa;
-
-  f->char_w = w;
-  f->char_h = h;
-
-  XGetWindowAttributes (dpy, window, &xgwa);
-
-  if (fontname && !strcmp (fontname, "6x10")) {
-
-    text_pm = XCreatePixmapFromBitmapData (dpy, window,
-                                           (char *) font6x10_bits,
-                                           font6x10_width,
-                                           font6x10_height,
-                                           1, 0, 1);
-    f->text_im = XGetImage(dpy, text_pm, 0, 0, font6x10_width, font6x10_height,
-                           1, XYPixmap);
-    XFreePixmap(dpy, text_pm);
-
-  } else if (fontname) {
-
-    font = XLoadQueryFont (dpy, fontname);
-    if (!font) {
-      fprintf(stderr, "analogtv: can't load font %s\n", fontname);
-      abort();
-    }
-
-    text_pm=XCreatePixmap(dpy, window, 256*f->char_w, f->char_h, 1);
-
-    memset(&gcv, 0, sizeof(gcv));
-    gcv.foreground=1;
-    gcv.background=0;
-    gcv.font=font->fid;
-    gc=XCreateGC(dpy, text_pm, GCFont|GCBackground|GCForeground, &gcv);
-
-    XSetForeground(dpy, gc, 0);
-    XFillRectangle(dpy, text_pm, gc, 0, 0, 256*f->char_w, f->char_h);
-    XSetForeground(dpy, gc, 1);
-    for (i=0; i<256; i++) {
-      char c=i;
-      int x=f->char_w*i+1;
-      int y=f->char_h*8/10;
-      XDrawString(dpy, text_pm, gc, x, y, &c, 1);
-    }
-    f->text_im = XGetImage(dpy, text_pm, 0, 0, 256*f->char_w, f->char_h,
-                           1, XYPixmap);
-# if 0
-    XWriteBitmapFile(dpy, "/tmp/tvfont.xbm", text_pm, 
-                     256*f->char_w, f->char_h, -1, -1);
-# endif
-    XFreeGC(dpy, gc);
-    XFreePixmap(dpy, text_pm);
-  } else {
-    f->text_im = XCreateImage(dpy, xgwa.visual, 1, XYPixmap, 0, 0,
-                              256*f->char_w, f->char_h, 8, 0);
-    f->text_im->data = (char *)calloc(f->text_im->height,
-                                      f->text_im->bytes_per_line);
-
-  }
-  f->x_mult=4;
-  f->y_mult=2;
-}
-
-int
-analogtv_font_pixel(analogtv_font *f, int c, int x, int y)
-{
-  if (x<0 || x>=f->char_w) return 0;
-  if (y<0 || y>=f->char_h) return 0;
-  if (c<0 || c>=256) return 0;
-  return XGetPixel(f->text_im, c*f->char_w + x, y) ? 1 : 0;
-}
-
-void
-analogtv_font_set_pixel(analogtv_font *f, int c, int x, int y, int value)
-{
-  if (x<0 || x>=f->char_w) return;
-  if (y<0 || y>=f->char_h) return;
-  if (c<0 || c>=256) return;
-
-  XPutPixel(f->text_im, c*f->char_w + x, y, value);
-}
-
-void
-analogtv_font_set_char(analogtv_font *f, int c, char *s)
-{
-  int value,x,y;
-
-  if (c<0 || c>=256) return;
-
-  for (y=0; y<f->char_h; y++) {
-    for (x=0; x<f->char_w; x++) {
-      if (!*s) return;
-      value=(*s==' ') ? 0 : 1;
-      analogtv_font_set_pixel(f, c, x, y, value);
-      s++;
-    }
-  }
-}
-
-void
-analogtv_lcp_to_ntsc(double luma, double chroma, double phase, int ntsc[4])
-{
-  int i;
-  for (i=0; i<4; i++) {
-    double w=90.0*i + phase;
-    double val=luma + chroma * (cos(3.1415926/180.0*w));
-    if (val<0.0) val=0.0;
-    if (val>127.0) val=127.0;
-    ntsc[i]=(int)val;
-  }
-}
-
-void
-analogtv_draw_solid(analogtv_input *input,
-                    int left, int right, int top, int bot,
-                    int ntsc[4])
-{
-  int x,y;
-
-  if (right-left<4) right=left+4;
-  if (bot-top<1) bot=top+1;
-
-  for (y=top; y<bot; y++) {
-    for (x=left; x<right; x++) {
-      input->signal[y][x] = ntsc[x&3];
-    }
-  }
-}
-
-
-void
-analogtv_draw_solid_rel_lcp(analogtv_input *input,
-                            double left, double right, double top, double bot,
-                            double luma, double chroma, double phase)
-{
-  int ntsc[4];
-
-  int topi=(int)(ANALOGTV_TOP + ANALOGTV_VISLINES*top);
-  int boti=(int)(ANALOGTV_TOP + ANALOGTV_VISLINES*bot);
-  int lefti=(int)(ANALOGTV_VIS_START + ANALOGTV_VIS_LEN*left);
-  int righti=(int)(ANALOGTV_VIS_START + ANALOGTV_VIS_LEN*right);
-
-  analogtv_lcp_to_ntsc(luma, chroma, phase, ntsc);
-  analogtv_draw_solid(input, lefti, righti, topi, boti, ntsc);
-}
-
-
-void
-analogtv_draw_char(analogtv_input *input, analogtv_font *f,
-                   int c, int x, int y, int ntsc[4])
-{
-  int yc,xc,ys,xs,pix;
-
-  for (yc=0; yc<f->char_h; yc++) {
-    for (ys=y + yc*f->y_mult; ys<y + (yc+1)*f->y_mult; ys++) {
-      if (ys<0 || ys>=ANALOGTV_V) continue;
-
-      for (xc=0; xc<f->char_w; xc++) {
-        pix=analogtv_font_pixel(f, c, xc, yc);
-
-        for (xs=x + xc*f->x_mult; xs<x + (xc+1)*f->x_mult; xs++) {
-          if (xs<0 || xs>=ANALOGTV_H) continue;
-          if (pix) {
-            input->signal[ys][xs] = ntsc[xs&3];
-          }
-        }
-      }
-    }
-  }
-}
-
-void
-analogtv_draw_string(analogtv_input *input, analogtv_font *f,
-                     char *s, int x, int y, int ntsc[4])
-{
-  while (*s) {
-    analogtv_draw_char(input, f, *s, x, y, ntsc);
-    x += f->char_w * 4;
-    s++;
-  }
-}
-
-void
-analogtv_draw_string_centered(analogtv_input *input, analogtv_font *f,
-                              char *s, int x, int y, int ntsc[4])
-{
-  int width=strlen(s) * f->char_w * 4;
-  x -= width/2;
-
-  analogtv_draw_string(input, f, s, x, y, ntsc);
-}
-
-
-static const char hextonib[128] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                   0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 0, 0, 0, 0, 0,
-                                   0, 10,11,12,13,14,15,0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                   0, 10,11,12,13,14,15,0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-
-/*
-  Much of this function was adapted from logo.c
- */
-void
-analogtv_draw_xpm(analogtv *tv, analogtv_input *input,
-                  const char * const *xpm, int left, int top)
-{
-  int xpmw,xpmh;
-  int x,y,tvx,tvy,i;
-  int rawy,rawi,rawq;
-  int ncolors, nbytes;
-  char dummyc;
-  struct {
-    int r; int g; int b;
-  } cmap[256];
-
-
-  if (4 != sscanf ((const char *) *xpm,
-                   "%d %d %d %d %c",
-                   &xpmw, &xpmh, &ncolors, &nbytes, &dummyc))
-    abort();
-  if (ncolors < 1 || ncolors > 255)
-    abort();
-  if (nbytes != 1) /* a serious limitation */
-    abort();
-  xpm++;
-
-  for (i = 0; i < ncolors; i++) {
-    const char *line = *xpm;
-    int colori = ((unsigned char)*line++)&0xff;
-    while (*line)
-      {
-        int r, g, b;
-        char which;
-        while (*line == ' ' || *line == '\t')
-          line++;
-        which = *line++;
-        if (which != 'c' && which != 'm')
-          abort();
-        while (*line == ' ' || *line == '\t')
-          line++;
-        if (!strncasecmp(line, "None", 4))
-          {
-            r = g = b = -1;
-            line += 4;
-          }
-        else
-          {
-            if (*line == '#')
-              line++;
-            r = (hextonib[(int) line[0]] << 4) | hextonib[(int) line[1]];
-            line += 2;
-            g = (hextonib[(int) line[0]] << 4) | hextonib[(int) line[1]];
-            line += 2;
-            b = (hextonib[(int) line[0]] << 4) | hextonib[(int) line[1]];
-            line += 2;
-          }
-
-        if (which == 'c')
-          {
-            cmap[colori].r = r;
-            cmap[colori].g = g;
-            cmap[colori].b = b;
-          }
-      }
-
-    xpm++;
-  }
-
-  for (y=0; y<xpmh; y++) {
-    const char *line = *xpm++;
-    tvy=y+top;
-    if (tvy<ANALOGTV_TOP || tvy>=ANALOGTV_BOT) continue;
-
-    for (x=0; x<xpmw; x++) {
-      int cbyte=((unsigned char)line[x])&0xff;
-      int ntsc[4];
-      tvx=x*4+left;
-      if (tvx<ANALOGTV_PIC_START || tvx+4>ANALOGTV_PIC_END) continue;
-
-      rawy=( 5*cmap[cbyte].r + 11*cmap[cbyte].g + 2*cmap[cbyte].b) / 64;
-      rawi=(10*cmap[cbyte].r -  4*cmap[cbyte].g - 5*cmap[cbyte].b) / 64;
-      rawq=( 3*cmap[cbyte].r -  8*cmap[cbyte].g + 5*cmap[cbyte].b) / 64;
-
-      ntsc[0]=rawy+rawq;
-      ntsc[1]=rawy-rawi;
-      ntsc[2]=rawy-rawq;
-      ntsc[3]=rawy+rawi;
-
-      for (i=0; i<4; i++) {
-        if (ntsc[i]>ANALOGTV_WHITE_LEVEL) ntsc[i]=ANALOGTV_WHITE_LEVEL;
-        if (ntsc[i]<ANALOGTV_BLACK_LEVEL) ntsc[i]=ANALOGTV_BLACK_LEVEL;
-      }
-
-      input->signal[tvy][tvx+0]= ntsc[(tvx+0)&3];
-      input->signal[tvy][tvx+1]= ntsc[(tvx+1)&3];
-      input->signal[tvy][tvx+2]= ntsc[(tvx+2)&3];
-      input->signal[tvy][tvx+3]= ntsc[(tvx+3)&3];
-    }
-  }
-}
