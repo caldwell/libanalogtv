@@ -90,7 +90,7 @@ it.
 
 *   `frame__second`
 
-    Frames per second (read `__` as "over"). This is divided into frame
+    Frames per second (read `__` as "over"). This is divided into `frame`
     to get the time elapsed which is used by the simulator and to
     control the "flash" interval. There's nothing magic about the
     relationship between `frames` and `frames__second`: If you don't
