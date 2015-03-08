@@ -109,7 +109,7 @@ it.
 
     *   `.hires`
 
-        This bool controls whether the screen should be Hires or Lores
+        This bool controls whether the screen should render Hires or Lores
         graphics. It has no meaning in Text mode. See Apple device
         address 0xc056 and 0xc057.
 
