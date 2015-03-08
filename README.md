@@ -154,10 +154,10 @@ struct framebuffer {
 
     The width and height of the framebuffer in pixels. This *may* be
     different from the width and height requested by `analogtv_apple2_setup`
-    or `analogtv_apple2_reconfigure`—The analogtv will choose new dimensions
-    if the requested dimensions are too far outside the optimal aspect ratio
-    (4:3 <= ratio <= 16:9), or if the dimensions are too small (minimum
-    266x200 pixels).
+    or `analogtv_apple2_reconfigure`—The analogtv code will choose new
+    dimensions if the requested dimensions are too far outside the optimal
+    aspect ratio (4:3 <= ratio <= 16:9), or if the dimensions are too small
+    (minimum 266x200 pixels).
 
 *   `bytes_per_line`
 
