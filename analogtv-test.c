@@ -69,7 +69,7 @@ int main(int argc, char **argv)
     printf("graphics=%d, hires=%d, mixed=%d, page=%d\n", video_mode.graphics, video_mode.hires, video_mode.mixed, video_mode.page);
 
     struct framebuffer *fb = analogtv_apple2_render(a2context,
-                                                    100,
+                                                    10000,
                                                     30,
                                                     video_mode,
                                                     video_mode.hires ? hgr_screen_ram : text_screen_ram);
