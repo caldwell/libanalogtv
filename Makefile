@@ -44,4 +44,4 @@ all: out-graphics-hires-mixed.png
 all: out-graphics-hires-mixed-page2.png
 
 clean:
-	rm -f *.o analog-test
+	rm -f *.o *.d analog-test
