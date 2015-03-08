@@ -60,7 +60,7 @@ int main(int argc, char **argv)
 
     printf("graphics=%d, hires=%d, mixed=%d, page=%d\n", video_mode.graphics, video_mode.hires, video_mode.mixed, video_mode.page);
 
-    struct framebuffer *fb = apple2_video_fancy_render(0,
+    struct framebuffer *fb = apple2_video_fancy_render(100,
                                                        30,
                                                        video_mode,
                                                        video_mode.hires ? hgr_screen_ram : text_screen_ram);
