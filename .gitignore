@@ -1,5 +1,5 @@
 *.d
 *.o
-*.png
+out*.png
 analogtv-test
 *~
