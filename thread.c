@@ -1,16 +1,15 @@
-//  Copyright © 2015 David Caldwell <david@porkrind.org>
+// Copyright © 2015 David Caldwell <david@porkrind.org>
 
-/* Adapted from xscreensaver's thread_util.c:
-thread_util.c, Copyright (c) 2014 Dave Odell <dmo2118@gmail.com>
-
-Permission to use, copy, modify, distribute, and sell this software and its
-documentation for any purpose is hereby granted without fee, provided that
-the above copyright notice appear in all copies and that both that
-copyright notice and this permission notice appear in supporting
-documentation.  No representations are made about the suitability of this
-software for any purpose.  It is provided "as is" without express or
-implied warranty.
-*/
+// Adapted from xscreensaver's thread_util.c:
+//   thread_util.c, Copyright (c) 2014 Dave Odell <dmo2118@gmail.com>
+//
+// Permission to use, copy, modify, distribute, and sell this software and its
+// documentation for any purpose is hereby granted without fee, provided that
+// the above copyright notice appear in all copies and that both that
+// copyright notice and this permission notice appear in supporting
+// documentation.  No representations are made about the suitability of this
+// software for any purpose.  It is provided "as is" without express or
+// implied warranty.
 
 #include <assert.h>
 #include <errno.h>
