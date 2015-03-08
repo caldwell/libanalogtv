@@ -1,6 +1,6 @@
 //  Copyright © 2015 David Caldwell <david@porkrind.org>
 
-#include "apple2-video-fancy.h"
+#include "analogtv-apple2.h"
 #include "analogtv.h"
 #include <assert.h>
 
@@ -40,7 +40,7 @@ struct analogtv_apple2 {
     analogtv_reception reception;
 };
 
-struct analogtv_apple2 *apple2_video_fancy_setup(unsigned width, unsigned height)
+struct analogtv_apple2 *analogtv_apple2_setup(unsigned width, unsigned height)
 {
     struct analogtv_apple2 *a2context = calloc(sizeof(struct analogtv_apple2), 1);
     assert(a2context);
@@ -60,16 +60,16 @@ struct analogtv_apple2 *apple2_video_fancy_setup(unsigned width, unsigned height
     return a2context;
 }
 
-void apple2_video_fancy_reconfigure(struct analogtv_apple2 *a2context, unsigned width, unsigned height)
+void analogtv_apple2_reconfigure(struct analogtv_apple2 *a2context, unsigned width, unsigned height)
 {
     analogtv_reconfigure(a2context->atv, width, height);
 }
 
-struct framebuffer *apple2_video_fancy_render(struct analogtv_apple2 *a2context,
-                                              unsigned frame,
-                                              unsigned frames__second,
-                                              struct video_mode video_mode,
-                                              uint8_t *ram)
+struct framebuffer *analogtv_apple2_render(struct analogtv_apple2 *a2context,
+                                           unsigned frame,
+                                           unsigned frames__second,
+                                           struct video_mode video_mode,
+                                           uint8_t *ram)
 {
     a2context->atv->powerup = (float)frame / frames__second;
     analogtv_setup_sync(a2context->input, video_mode.graphics/*do_cb*/, false/*do_ssavi*/);
@@ -151,7 +151,7 @@ struct framebuffer *apple2_video_fancy_render(struct analogtv_apple2 *a2context,
     return a2context->atv->framebuffer;
 }
 
-void apple2_video_fancy_cleanup(struct analogtv_apple2 *a2context)
+void analogtv_apple2_cleanup(struct analogtv_apple2 *a2context)
 {
     analogtv_release(a2context->atv);
     free(a2context);

@@ -1,7 +1,7 @@
 //  Copyright © 2015 David Caldwell <david@porkrind.org>
 
 #include "analogtv.h"
-#include "apple2-video-fancy.h"
+#include "analogtv-apple2.h"
 #include <stdlib.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -44,7 +44,7 @@ uint8_t hgr_screen_ram[] = {
 
 int main(int argc, char **argv)
 {
-    struct analogtv_apple2 *a2context = apple2_video_fancy_setup(1280, 720);
+    struct analogtv_apple2 *a2context = analogtv_apple2_setup(1280, 720);
 
     struct video_mode video_mode = { .graphics=true, .hires=true, .mixed=false, .page=0 };
 
@@ -60,15 +60,15 @@ int main(int argc, char **argv)
 
     printf("graphics=%d, hires=%d, mixed=%d, page=%d\n", video_mode.graphics, video_mode.hires, video_mode.mixed, video_mode.page);
 
-    struct framebuffer *fb = apple2_video_fancy_render(a2context,
-                                                       100,
-                                                       30,
-                                                       video_mode,
-                                                       video_mode.hires ? hgr_screen_ram : text_screen_ram);
+    struct framebuffer *fb = analogtv_apple2_render(a2context,
+                                                    100,
+                                                    30,
+                                                    video_mode,
+                                                    video_mode.hires ? hgr_screen_ram : text_screen_ram);
 
     save_png(filename, gd_image_from_fb(fb));
 
-    apple2_video_fancy_cleanup(a2context);
+    analogtv_apple2_cleanup(a2context);
 
     return 0;
 }

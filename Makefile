@@ -21,7 +21,7 @@ CFLAGS += -Wno-parentheses
 CFLAGS += -MMD
 -include *.d
 
-ANALOGTV_TEST_OBJS = analogtv-test.o thread.o analogtv.o apple2-video-fancy.o
+ANALOGTV_TEST_OBJS = analogtv-test.o thread.o analogtv.o analogtv-apple2.o
 analogtv-test: $(ANALOGTV_TEST_OBJS)
 analogtv-test $(ANALOGTV_TEST_OBJS): PKGCONFIG+=gdlib
 
