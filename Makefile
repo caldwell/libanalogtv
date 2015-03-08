@@ -38,11 +38,11 @@ analogtv-test: $(ANALOGTV_TEST_OBJS)
 analogtv-test $(ANALOGTV_TEST_OBJS): PKGCONFIG+=gdlib
 
 out-%.png: analogtv-test
-	./analogtv-test $(if $(findstring graphics,$*),1,0) \
-	                $(if $(findstring hires,$*),1,0)    \
-	                $(if $(findstring mixed,$*),1,0)    \
-	                $(if $(findstring page,$*),1,0)     \
-	                $@
+	./analogtv-test $(strip $(if $(findstring graphics,$*),1,0) \
+	                        $(if $(findstring hires,$*),1,0)    \
+	                        $(if $(findstring mixed,$*),1,0)    \
+	                        $(if $(findstring page,$*),1,0)     \
+	                        $@)
 
 all: out-text.png
 all: out-text-page2.png
