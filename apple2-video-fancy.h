@@ -14,11 +14,14 @@ struct video_mode {
     unsigned page;
 };
 
-void apple2_video_fancy_setup(unsigned width, unsigned height);
-struct framebuffer *apple2_video_fancy_render(unsigned frame,
+struct analogtv_apple2;
+
+struct analogtv_apple2 *apple2_video_fancy_setup(unsigned width, unsigned height);
+struct framebuffer *apple2_video_fancy_render(struct analogtv_apple2 *a2context,
+                                              unsigned frame,
                                               unsigned frames__second,
                                               struct video_mode video_mode,
                                               uint8_t *ram);
-void apple2_video_fancy_cleanup();
+void apple2_video_fancy_cleanup(struct analogtv_apple2 *a2context);
 
 #endif /* __APPLE2_VIDEO_FANCY_H__ */

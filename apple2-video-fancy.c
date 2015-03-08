@@ -34,34 +34,42 @@ static uint8_t apple_2_plus_charset[] = {
     #include "apple2+.charset.h"
 };
 
-static analogtv *atv;
-static analogtv_input *input;
-static analogtv_reception reception;
+struct analogtv_apple2 {
+    analogtv *atv;
+    analogtv_input *input;
+    analogtv_reception reception;
+};
 
-void apple2_video_fancy_setup(unsigned width, unsigned height)
+struct analogtv_apple2 *apple2_video_fancy_setup(unsigned width, unsigned height)
 {
-    atv = analogtv_allocate(width, height, (struct framebuffer_driver) { .alloc=fb_alloc, .free=fb_free });
-    assert(atv);
+    struct analogtv_apple2 *a2context = calloc(sizeof(struct analogtv_apple2), 1);
+    assert(a2context);
 
-    input = analogtv_input_allocate();
-    assert(input);
+    a2context->atv = analogtv_allocate(width, height, (struct framebuffer_driver) { .alloc=fb_alloc, .free=fb_free });
+    assert(a2context->atv);
 
-    reception.input = input;
-    reception.level = 1.0;
+    a2context->input = analogtv_input_allocate();
+    assert(a2context->input);
 
-    analogtv_set_defaults(atv);
-    atv->squish_control=0.05;
+    a2context->reception.input = a2context->input;
+    a2context->reception.level = 1.0;
+
+    analogtv_set_defaults(a2context->atv);
+    a2context->atv->squish_control=0.05;
+
+    return a2context;
 }
 
-struct framebuffer *apple2_video_fancy_render(unsigned frame,
+struct framebuffer *apple2_video_fancy_render(struct analogtv_apple2 *a2context,
+                                              unsigned frame,
                                               unsigned frames__second,
                                               struct video_mode video_mode,
                                               uint8_t *ram)
 {
-    atv->powerup = (float)frame / frames__second;
-    analogtv_setup_sync(input, video_mode.graphics/*do_cb*/, false/*do_ssavi*/);
+    a2context->atv->powerup = (float)frame / frames__second;
+    analogtv_setup_sync(a2context->input, video_mode.graphics/*do_cb*/, false/*do_ssavi*/);
 
-    analogtv_setup_frame(atv);
+    analogtv_setup_frame(a2context->atv);
 
     float flash_period = 1.44/((12000+2*3300000)*.0000001); // A 555 timer running in astable mode. Formula from National's data sheet. Ra=12K Rb=3.3M C=.1uF
     flash_period /= 8; // hack--my calculations are incorrect and it runs way too slow.
@@ -80,7 +88,7 @@ struct framebuffer *apple2_video_fancy_render(unsigned frame,
                and even bytes have different color spaces. So, pattern[0..600]
                gets the dots for one scan line. */
 
-            signed char *pp=&input->signal[row+ANALOGTV_TOP+4][ANALOGTV_PIC_START+100];
+            signed char *pp=&a2context->input->signal[row+ANALOGTV_TOP+4][ANALOGTV_PIC_START+100];
             if (video_mode.graphics && !video_mode.hires && (row<160 || !video_mode.mixed)) { // lores
                 for (int x=0; x<40; x++) {
                     uint8_t c = ram[text_start + text_line_offset(textrow) + x];
@@ -132,13 +140,14 @@ struct framebuffer *apple2_video_fancy_render(unsigned frame,
         }
     }
 
-    const analogtv_reception *recs = &reception; // fake array of receptions
-    analogtv_draw(atv, 0.02, &recs, 1);
+    const analogtv_reception *recs = &a2context->reception; // fake array of receptions
+    analogtv_draw(a2context->atv, 0.02, &recs, 1);
 
-    return atv->framebuffer;
+    return a2context->atv->framebuffer;
 }
 
-void apple2_video_fancy_cleanup()
+void apple2_video_fancy_cleanup(struct analogtv_apple2 *a2context)
 {
-    analogtv_release(atv);
+    analogtv_release(a2context->atv);
+    free(a2context);
 }
