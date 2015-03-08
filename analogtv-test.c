@@ -52,7 +52,7 @@ uint8_t hgr_screen_ram[] = {
 
 int main(int argc, char **argv)
 {
-    struct analogtv_apple2 *a2context = analogtv_apple2_setup(1280, 720);
+    struct analogtv_apple2 *a2context = analogtv_apple2_setup(1280, 1024);
 
     struct video_mode video_mode = { .graphics=true, .hires=true, .mixed=false, .page=0 };
 
