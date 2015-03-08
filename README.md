@@ -8,7 +8,7 @@ What is this?
 -------------
 
 This is Trevor Blackwell's excellent analog TV simulator ripped out of
-XScreenSaver, where's been living for the past 10 years. All the X11
+XScreenSaver, where it's been living for the past 10 years. All the X11
 vestiges have been shed and it's presented here as a stand-alone C library
 for use with Apple 2 Emulators, or anyone else who wants a fancy way to make
 your screen look like an analog monitor.
