@@ -60,6 +60,11 @@ struct analogtv_apple2 *apple2_video_fancy_setup(unsigned width, unsigned height
     return a2context;
 }
 
+void apple2_video_fancy_reconfigure(struct analogtv_apple2 *a2context, unsigned width, unsigned height)
+{
+    analogtv_reconfigure(a2context->atv, width, height);
+}
+
 struct framebuffer *apple2_video_fancy_render(struct analogtv_apple2 *a2context,
                                               unsigned frame,
                                               unsigned frames__second,
