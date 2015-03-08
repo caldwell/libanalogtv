@@ -311,7 +311,7 @@ analogtv_reconfigure(analogtv *it, int width, int height)
 
 
   height_diff = ((hlim + ANALOGTV_VISLINES/2) % ANALOGTV_VISLINES) - ANALOGTV_VISLINES/2;
-  if (height_diff != 0 && fabs(height_diff) < hlim * height_snap)
+  if (height_diff != 0 && abs(height_diff) < hlim * height_snap)
     {
       hlim -= height_diff;
     }
