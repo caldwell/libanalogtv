@@ -16,6 +16,8 @@ CPPFLAGS   += $(if $(PKGCONFIG), $$(pkg-config $(PKGCONFIG) --cflags))
 LDLIBS     += $(if $(PKGCONFIG), $$(pkg-config $(PKGCONFIG) --libs-only-l))
 LDFLAGS    += $(if $(PKGCONFIG), $$(pkg-config $(PKGCONFIG) --libs-only-L))
 
+CFLAGS += -Wno-parentheses
+
 CFLAGS += -MMD
 -include *.d
 
