@@ -13,9 +13,10 @@ vestiges have been shed and it's presented here as a stand-alone C library
 for use with Apple 2 Emulators, or anyone else who wants a fancy way to make
 your screen look like an analog monitor.
 
-What's that all mean, exactly? Here's a screenshot:
+What's that all mean, exactly? Here's a couple screenshots:
 
-![Screenshot](https://github.com/caldwell/libanalogtv/raw/master/Screenshot.png)
+![Screenshot](https://github.com/caldwell/libanalogtv/raw/master/Screenshot.lode.png)
+![Screenshot](https://github.com/caldwell/libanalogtv/raw/master/Screenshot.chop.png)
 
 
 Prerequisites
