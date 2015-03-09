@@ -50,7 +50,8 @@ uint8_t text_screen_ram[] = {
 };
 
 uint8_t hgr_screen_ram[] = {
-#include "hgr-screen.h"
+//#include "hgr-screen.lode.h"
+#include "hgr-screen.chop.h"
 };
 
 int main(int argc, char **argv)
