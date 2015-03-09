@@ -19,10 +19,13 @@
 gdImagePtr gd_image_from_fb(struct framebuffer *fb)
 {
     gdImagePtr image = gdImageCreateTrueColor(fb->width, fb->height);
-    uint32_t (*pix)[fb->height][fb->width] = fb->pixels;
+    uint8_t (*pix)[fb->height][fb->width*4] = fb->pixels;
     for (unsigned y=0; y<fb->height; y++)
         for (unsigned x=0; x<fb->width; x++)
-            image->tpixels[y][x] = (int)(*pix)[y][x];
+            image->tpixels[y][x] = (*pix)[y][x*4+2] << 24 | // gd uses ARGB in native word order
+                                   (*pix)[y][x*4+0] << 16 |
+                                   (*pix)[y][x*4+1] <<  8 |
+                                   (*pix)[y][x*4+2] <<  0;
     return image;
 }
 
