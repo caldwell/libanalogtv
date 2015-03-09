@@ -143,7 +143,7 @@ struct framebuffer *analogtv_apple2_render(struct analogtv_apple2 *a2context,
                     }
 
 
-                    int shift=(seg&0x80)?-1:0; // apple2.c has ?0:1 but that gives the wrong colors.
+                    int shift=(seg&0x80)?1:0; // apple2.c has ?0:1 but that gives the wrong colors.
 
                     /* Each of the low 7 bits in hires mode corresponded to 2 dot
                        clocks, shifted by one if the high bit was set. */
